@@ -3,6 +3,9 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 
+// Import file scan camera yang baru dibuat
+import 'scan_camera.dart'; 
+
 class MakanScreen extends StatefulWidget {
   final int userId;
   const MakanScreen({super.key, required this.userId});
@@ -18,10 +21,11 @@ class _MakanScreenState extends State<MakanScreen> {
   bool isLoading = false;
   bool hasSearched = false;
   
-  // IP ADDRESS (Pastikan ini benar)
-  final String baseUrl = 'http://192.168.95.2:5000'; 
+  String userName = "Rizki Cahya Zulfikar"; 
 
-  // Data Summary
+  // IP ADDRESS (Sesuaikan dengan IP laptop kamu)
+  final String baseUrl = 'http://192.168.1.7:5000'; 
+
   Map<String, dynamic> dailySummary = {
     "total_kalori": 0,
     "target_kalori": 2000,
@@ -33,7 +37,8 @@ class _MakanScreenState extends State<MakanScreen> {
     "malam": []
   };
 
-  final Color primaryTeal = const Color(0xFF009688);
+  final Color primaryTeal = const Color(0xFF4DB6AC); 
+  final Color bgMintLight = const Color(0xFFE0F2F1); 
   final Color colorProtein = const Color(0xFF42A5F5); 
   final Color colorCarb = const Color(0xFF66BB6A);    
   final Color colorFat = const Color(0xFFFFA726);     
@@ -41,7 +46,25 @@ class _MakanScreenState extends State<MakanScreen> {
   @override
   void initState() {
     super.initState();
+    _loadUserData();      
     _fetchDailySummary(); 
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      final url = Uri.parse('$baseUrl/api/users/${widget.userId}');
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (mounted && data['nama'] != null) {
+          setState(() {
+            userName = data['nama'];
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error load user: $e");
+    }
   }
 
   void _onSearchChanged(String query) {
@@ -53,7 +76,6 @@ class _MakanScreenState extends State<MakanScreen> {
     });
   }
 
-  // --- 1. AMBIL DATA DARI DB MYSQL (API) ---
   Future<void> _searchFood(String query) async {
     if (query.isEmpty) return;
 
@@ -78,11 +100,64 @@ class _MakanScreenState extends State<MakanScreen> {
     }
   }
 
-  // --- 2. KIRIM DATA KE DB MYSQL (API) ---
+  // --- FUNGSI BARU: PROSES HASIL SCAN AI ---
+  Future<void> _processScanResult(String foodName) async {
+    // Tampilkan Loading saat mencari data nutrisi
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // 1. Cari detail nutrisi ke API berdasarkan nama dari AI (misal: "Nasi Goreng")
+      final url = Uri.parse('$baseUrl/api/makanan/search?q=$foodName');
+      final response = await http.get(url);
+
+      if (!mounted) return;
+      Navigator.pop(context); // Tutup Loading
+
+      if (response.statusCode == 200) {
+        List<dynamic> results = jsonDecode(response.body);
+
+        if (results.isNotEmpty) {
+          // 2. Ambil data pertama yang paling cocok
+          var foodItem = results[0]; 
+
+          // 3. Langsung Buka Form Input (Biar user tinggal pilih jam & save)
+          _showInputForm(foodItem);
+
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("AI Sukses! Makanan terdeteksi: $foodName"),
+            backgroundColor: Colors.green,
+          ));
+        } else {
+          _showNotFoundDialog(foodName);
+        }
+      }
+    } catch (e) {
+      Navigator.pop(context); 
+      debugPrint("Error processing scan: $e");
+    }
+  }
+
+  void _showNotFoundDialog(String foodName) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Belum Ada Data"),
+        content: Text("AI mengenali ini sebagai '$foodName', tapi data gizinya belum ada di database admin."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Oke"))
+        ],
+      ),
+    );
+  }
+  // ---------------------------------------------
+
   Future<void> _addFood(Map<String, dynamic> foodItem, String waktu) async {
     final url = Uri.parse('$baseUrl/api/riwayat/makan');
     
-    // Tampilkan Loading Dialog
     showDialog(
       context: context, 
       barrierDismissible: false,
@@ -105,10 +180,10 @@ class _MakanScreenState extends State<MakanScreen> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context); // Tutup Loading Dialog
+      Navigator.pop(context); 
 
       if (response.statusCode == 201) {
-        Navigator.pop(context); // Tutup Form Input
+        Navigator.pop(context); 
         
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Row(
@@ -128,10 +203,10 @@ class _MakanScreenState extends State<MakanScreen> {
           hasSearched = false;
         });
         FocusScope.of(context).unfocus(); 
-        _fetchDailySummary(); // Refresh halaman
+        _fetchDailySummary(); 
       }
     } catch (e) {
-      Navigator.pop(context); // Tutup Loading
+      Navigator.pop(context); 
       debugPrint("Error adding food: $e");
     }
   }
@@ -148,9 +223,8 @@ class _MakanScreenState extends State<MakanScreen> {
     } catch (e) { debugPrint("Error summary: $e"); }
   }
 
-  // --- 3. LOGIC TOMBOL SUBMIT (POPUP FORM) ---
   void _showInputForm(Map<String, dynamic> item) {
-    String selectedTime = "Pagi"; // Default
+    String selectedTime = "Pagi"; 
 
     showModalBottomSheet(
       context: context,
@@ -168,7 +242,6 @@ class _MakanScreenState extends State<MakanScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header Makanan
                     Row(
                       children: [
                         ClipRRect(
@@ -192,7 +265,6 @@ class _MakanScreenState extends State<MakanScreen> {
                     ),
                     const Divider(height: 30),
 
-                    // Pilihan Waktu
                     const Text("Pilih Waktu Makan:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 15),
                     Row(
@@ -206,7 +278,6 @@ class _MakanScreenState extends State<MakanScreen> {
 
                     const SizedBox(height: 30),
 
-                    // TOMBOL SIMPAN
                     SizedBox(
                       width: double.infinity,
                       height: 55,
@@ -240,7 +311,6 @@ class _MakanScreenState extends State<MakanScreen> {
     );
   }
 
-  // Widget Pilihan Waktu (Menggunakan withValues)
   Widget _buildChoiceChip(String label, IconData icon, Color color, String currentSelection, Function(String) onSelect) {
     bool isSelected = currentSelection == label;
     return GestureDetector(
@@ -249,7 +319,6 @@ class _MakanScreenState extends State<MakanScreen> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          // GANTI withOpacity ke withValues
           color: isSelected ? color.withValues(alpha: 0.1) : Colors.grey[100],
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: isSelected ? color : Colors.transparent, width: 2),
@@ -285,28 +354,37 @@ class _MakanScreenState extends State<MakanScreen> {
     if (target > 0) progress = (current / target).clamp(0.0, 1.0);
 
     return Scaffold(
-      extendBodyBehindAppBar: true, 
-      appBar: AppBar(
-        title: const Text("Jurnal Makanan", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        leading: Container(
-          margin: const EdgeInsets.all(8),
-          decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-          child: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black, size: 20),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-      ),
       body: Stack(
         children: [
           Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Color(0xFFE0F2F1), Color(0xFFFAFAFA)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFF80CBC4), 
+                  bgMintLight,             
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            top: -50, right: -50,
+            child: Container(
+              width: 250, height: 250,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.15),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 100, left: -50,
+            child: Container(
+              width: 200, height: 200,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.tealAccent.withValues(alpha: 0.1),
               ),
             ),
           ),
@@ -315,19 +393,63 @@ class _MakanScreenState extends State<MakanScreen> {
             child: RefreshIndicator(
               onRefresh: _fetchDailySummary,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     
-                    // CARD TARGET HARIAN
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.arrow_back, color: Colors.white),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ),
+                        
+                        const SizedBox(width: 15),
+                        
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Halo, $userName...", 
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 18, 
+                                  fontWeight: FontWeight.bold, 
+                                  color: Colors.white
+                                ),
+                              ),
+                              const Text(
+                                "Pantau Nutrisimu",
+                                style: TextStyle(
+                                  fontSize: 14, 
+                                  color: Colors.white70
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 30),
+                    
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(colors: [primaryTeal, const Color(0xFF4DB6AC)]),
+                        gradient: LinearGradient(colors: [primaryTeal, const Color(0xFF80CBC4)]), 
                         borderRadius: BorderRadius.circular(25),
-                        // GANTI withOpacity ke withValues
                         boxShadow: [BoxShadow(color: primaryTeal.withValues(alpha: 0.4), blurRadius: 15, offset: const Offset(0, 8))],
                       ),
                       child: Column(
@@ -339,7 +461,6 @@ class _MakanScreenState extends State<MakanScreen> {
                               const Text("Target Harian", style: TextStyle(color: Colors.white70, fontSize: 14)),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                // GANTI withOpacity ke withValues
                                 decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)),
                                 child: Row(
                                   children: [
@@ -364,12 +485,10 @@ class _MakanScreenState extends State<MakanScreen> {
                           ),
                           const SizedBox(height: 15),
                           
-                          // PROGRESS BAR
                           ClipRRect(
                             borderRadius: BorderRadius.circular(10),
                             child: LinearProgressIndicator(
                               value: progress,
-                              // GANTI withOpacity ke withValues
                               backgroundColor: Colors.white.withValues(alpha: 0.3),
                               valueColor: AlwaysStoppedAnimation<Color>(
                                 progress > 1.0 ? Colors.redAccent : Colors.amberAccent
@@ -381,7 +500,6 @@ class _MakanScreenState extends State<MakanScreen> {
                           
                           Container(
                             padding: const EdgeInsets.all(10),
-                            // GANTI withOpacity ke withValues
                             decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(15)),
                             child: Row(
                               children: [
@@ -404,17 +522,44 @@ class _MakanScreenState extends State<MakanScreen> {
                     ),
                     
                     const SizedBox(height: 25),
-                    const Text("Tambah Makanan", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text("Tambah Makanan", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                     const SizedBox(height: 10),
 
-                    // SEARCH BAR
+                    // --- TOMBOL SCAN CAMERA & AI (INTEGRASI BARU) ---
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 15),
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                           // 1. TUNGGU HASIL DARI KAMERA
+                           final resultName = await Navigator.push(
+                             context,
+                             MaterialPageRoute(builder: (context) => const ScanCameraScreen()),
+                           );
+
+                           // 2. JIKA ADA HASIL DARI AI, PROSES!
+                           if (resultName != null && resultName is String) {
+                             _processScanResult(resultName);
+                           }
+                        },
+                        icon: const Icon(Icons.camera_alt, color: Colors.white),
+                        label: const Text("Scan Foto Makanan (AI)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFFA726), 
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                          elevation: 2,
+                        ),
+                      ),
+                    ),
+
                     TextField(
                       controller: searchController,
                       textInputAction: TextInputAction.search,
                       onSubmitted: (value) => _searchFood(value),
                       onChanged: _onSearchChanged,
                       decoration: InputDecoration(
-                        hintText: "Cari nasi goreng, ayam...",
+                        hintText: "Atau cari manual...",
                         hintStyle: TextStyle(color: Colors.grey[400]),
                         prefixIcon: Icon(Icons.search, color: primaryTeal),
                         suffixIcon: isLoading 
@@ -423,13 +568,12 @@ class _MakanScreenState extends State<MakanScreen> {
                                 ? IconButton(icon: const Icon(Icons.clear, color: Colors.grey), onPressed: (){ searchController.clear(); setState(() { searchResults = []; hasSearched = false; }); }) 
                                 : null),
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: Colors.white.withValues(alpha: 0.9), 
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                       ),
                     ),
 
-                    // HASIL PENCARIAN
                     if (hasSearched) 
                        AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
@@ -438,7 +582,6 @@ class _MakanScreenState extends State<MakanScreen> {
                         decoration: BoxDecoration(
                           color: Colors.white, 
                           borderRadius: BorderRadius.circular(20),
-                          // GANTI withOpacity ke withValues
                           boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 15)]
                         ),
                         child: isLoading 
@@ -464,7 +607,6 @@ class _MakanScreenState extends State<MakanScreen> {
                                       title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
                                       subtitle: Text("${item['calories']} kkal | P: ${item['proteins']}g", style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                                       trailing: Icon(Icons.add_circle, color: primaryTeal),
-                                      // MEMBUKA FORM INPUT
                                       onTap: () => _showInputForm(item),
                                     );
                                   },
@@ -473,10 +615,9 @@ class _MakanScreenState extends State<MakanScreen> {
                       ),
 
                     const SizedBox(height: 30),
-                    const Text("Riwayat Makan", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text("Riwayat Makan", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                     const SizedBox(height: 15),
 
-                    // LIST REKAP PER WAKTU
                     _buildMealCard("Sarapan Pagi", Icons.wb_sunny_outlined, Colors.orange, dailySummary['pagi']),
                     _buildMealCard("Makan Siang", Icons.wb_sunny, Colors.amber[700]!, dailySummary['siang']),
                     _buildMealCard("Makan Malam", Icons.nights_stay, Colors.indigo, dailySummary['malam']),
@@ -492,7 +633,6 @@ class _MakanScreenState extends State<MakanScreen> {
     );
   }
 
-  // --- WIDGET HELPER ---
   Widget _buildMealCard(String title, IconData icon, Color color, List<dynamic> items) {
     double totalCal = 0;
     double totalProt = 0;
@@ -511,9 +651,8 @@ class _MakanScreenState extends State<MakanScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.white.withValues(alpha: 0.9), 
         borderRadius: BorderRadius.circular(25),
-        // GANTI withOpacity ke withValues
         boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.1), blurRadius: 15, offset: const Offset(0, 5))],
       ),
       child: Column(
@@ -524,7 +663,6 @@ class _MakanScreenState extends State<MakanScreen> {
               children: [
                 Container(
                   padding: const EdgeInsets.all(12),
-                  // GANTI withOpacity ke withValues
                   decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(15)),
                   child: Icon(icon, color: color, size: 24),
                 ),
@@ -590,7 +728,6 @@ class _MakanScreenState extends State<MakanScreen> {
   Widget _buildMiniChip(String label, dynamic value, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      // GANTI withOpacity ke withValues
       decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
       child: Text("$label ${value}g", style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
     );

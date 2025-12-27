@@ -11,9 +11,20 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^1.2.0
-  shared_preferences: ^2.2.2  # <--- INI WAJIB ADA
+  shared_preferences: ^2.2.2
   url_launcher: ^6.3.2
   image_picker: ^1.2.1
+  
+  # --- PETA & GPS (JANGAN DIHAPUS) ---
+  flutter_map: ^7.0.0    
+  latlong2: ^0.9.1       
+  geolocator: ^13.0.0    
+  intl: ^0.20.2
+  crypto: ^3.0.7
+
+  # --- TAMBAHAN BARU (CAMERA & AI) ---
+  camera: ^0.10.5        # <-- Baru
+  flutter_vision: ^1.1.4 # <-- Baru
 
 dev_dependencies:
   flutter_test:
@@ -22,3 +33,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/models/model_makanan_indo.tflite
+    - assets/models/labels.txt

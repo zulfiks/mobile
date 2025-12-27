@@ -1,248 +1,312 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
-class ResetPasswordScreen extends StatelessWidget {
+class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
 
-  // Definisi warna
-  final Color bgTeal = const Color(0xFF90DED0);
-  final Color btnBlue = const Color(0xFF2FA4F3);
-  final Color inputGrey = const Color(0xFFBDBDBD);
-
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: bgTeal,
-      body: Stack(
-        children: [
-          // 1. Dekorasi Gelombang (Background)
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: ClipPath(
-              clipper: WaveClipper(),
-              child: Container(
-                height: 150,
-                color: Colors.white.withValues(alpha: 0.4),
-              ),
+  State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
+}
+
+class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
+  final TextEditingController namaController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordBaruController = TextEditingController();
+  bool isLoading = false;
+
+  // --- 1. LOGIKA VERIFIKASI USER ---
+  Future<void> _verifikasiUser() async {
+    if (namaController.text.isEmpty || emailController.text.isEmpty) {
+      _showSnackBar("Isi Nama dan Email dulu!", Colors.orange);
+      return;
+    }
+    setState(() => isLoading = true);
+
+    // GANTI IP SESUAI LAPTOP KAMU
+    final url = Uri.parse('http://192.168.1.7:5000/api/reset-password/verify');
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "nama": namaController.text,
+          "email": emailController.text
+        }),
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        _showDialogPasswordBaru(data['user_id']);
+      } else {
+        _showSnackBar("Nama atau Email tidak cocok!", Colors.red);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar("Koneksi Error: $e", Colors.red);
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // --- 2. LOGIKA UPDATE PASSWORD ---
+  Future<void> _updatePassword(int userId) async {
+    if (passwordBaruController.text.isEmpty) return;
+
+    if (passwordBaruController.text.length < 8) {
+      Navigator.pop(context); // Tutup dialog
+      _showSnackBar("Password minimal 8 karakter!", Colors.orange);
+      return;
+    }
+
+    // GANTI IP SESUAI LAPTOP KAMU
+    final url = Uri.parse('http://192.168.1.7:5000/api/reset-password/update');
+
+    try {
+      final response = await http.put(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "user_id": userId,
+          "new_password": passwordBaruController.text
+        }),
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        _showSnackBar("Password Berhasil Diganti!", Colors.green);
+        Navigator.pop(context); // Keluar dari halaman reset (kembali ke login)
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar("Gagal update: $e", Colors.red);
+    }
+  }
+
+  // --- 3. DIALOG PASSWORD BARU ---
+  void _showDialogPasswordBaru(int userId) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text("Ganti Password"),
+        content: TextField(
+          controller: passwordBaruController,
+          obscureText: true,
+          decoration: InputDecoration(
+            hintText: "Password Baru (Min 8)",
+            filled: true,
+            fillColor: Colors.grey[200],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
             ),
           ),
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: ClipPath(
-              clipper: WaveClipper2(),
-              child: Container(
-                height: 100,
-                color: Colors.white,
-              ),
-            ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Batal"),
           ),
-
-          // 2. Konten Utama
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(height: 40),
-
-                  // --- Logo Healthify ---
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF2FA4F3), Color(0xFF90DED0)],
-                        begin: Alignment.bottomRight,
-                        end: Alignment.topLeft,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Icon(
-                      Icons.directions_run,
-                      color: Colors.white,
-                      size: 50,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    "Healthify",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.0,
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-
-                  // --- Card Reset Password ---
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF4F4),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Center(
-                          child: Text(
-                            "Reset Password",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.black,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 25),
-
-                        // Input 1: Nama
-                        const Text("Nama", style: TextStyle(fontSize: 16)),
-                        const SizedBox(height: 8),
-                        TextField(
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: inputGrey,
-                            prefixIcon: const Icon(Icons.account_circle_outlined, color: Colors.black87),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(15),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // Input 2: Email
-                        const Text("Email", style: TextStyle(fontSize: 16)),
-                        const SizedBox(height: 8),
-                        TextField(
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: inputGrey,
-                            prefixIcon: const Icon(Icons.email_outlined, color: Colors.black87),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(15),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                        ),
-
-                        const SizedBox(height: 25),
-
-                        // Tombol Kirim
-                        SizedBox(
-                          width: double.infinity,
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              // Aksi kirim reset password
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: btnBlue,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              elevation: 0,
-                            ),
-                            child: const Text(
-                              "Kirim",
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 20),
-
-                        // Tombol Kembali ke Login
-                        Center(
-                          child: GestureDetector(
-                            onTap: () {
-                              Navigator.pop(context); // Kembali ke halaman sebelumnya (Login)
-                            },
-                            child: const Text(
-                              "kembali ke halaman\nlogin",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.black,
-                                fontSize: 14,
-                                height: 1.2, // Spasi antar baris
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                ],
-              ),
+          ElevatedButton(
+            onPressed: () => _updatePassword(userId),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF29B6F6),
             ),
-          ),
-
-          // Footer Text
-          const Positioned(
-            bottom: 10,
-            right: 15,
-            child: Text(
-              "design by kel yareuuuu",
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.black54,
-              ),
-            ),
-          ),
+            child: const Text("Simpan", style: TextStyle(color: Colors.white)),
+          )
         ],
       ),
     );
   }
-}
 
-// --- Clipper Gelombang (Sama seperti file lain) ---
-class WaveClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    var path = Path();
-    path.lineTo(0, size.height);
-    path.lineTo(size.width, size.height);
-    path.lineTo(size.width, size.height - 50);
-    var firstControlPoint = Offset(size.width / 2, size.height - 120);
-    var firstEndPoint = Offset(0, size.height - 50);
-    path.quadraticBezierTo(
-        firstControlPoint.dx, firstControlPoint.dy, firstEndPoint.dx, firstEndPoint.dy);
-    path.close();
-    return path;
+  // --- 4. HELPER SNACKBAR ---
+  void _showSnackBar(String msg, Color col) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: col),
+    );
   }
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
-}
 
-class WaveClipper2 extends CustomClipper<Path> {
+  // --- 5. TAMPILAN UI (BUILD) ---
   @override
-  Path getClip(Size size) {
-    var path = Path();
-    path.lineTo(0, size.height);
-    path.lineTo(size.width, size.height);
-    path.lineTo(size.width, size.height - 30);
-    var firstControlPoint = Offset(size.width * 0.6, size.height - 90);
-    var firstEndPoint = Offset(0, size.height);
-    path.quadraticBezierTo(
-        firstControlPoint.dx, firstControlPoint.dy, firstEndPoint.dx, firstEndPoint.dy);
-    path.close();
-    return path;
+  Widget build(BuildContext context) {
+    final Color mainColor = const Color(0xFF8CD1CC);
+
+    return Scaffold(
+      backgroundColor: mainColor,
+      body: Stack(
+        children: [
+          // --- BUBBLES BACKGROUND (Perhatikan KOMA di akhir, bukan titik koma) ---
+          _buildBubble(top: -50, left: -50, size: 200, opacity: 0.1),
+          _buildBubble(bottom: 100, right: -20, size: 100, opacity: 0.1),
+          _buildBubble(top: 150, left: 30, size: 80, opacity: 0.12),
+          _buildBubble(bottom: -40, left: -40, size: 180, opacity: 0.08),
+          _buildBubble(top: 50, right: 50, size: 60, opacity: 0.15),
+
+          // --- KONTEN TENGAH ---
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 30),
+              child: Column(
+                children: [
+                  const Text(
+                    "Reset Password",
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          offset: Offset(0, 2),
+                          blurRadius: 5,
+                          color: Colors.black26,
+                        )
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+
+                  // CARD FORM PUTIH
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(30),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEBF2F1).withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 15,
+                          offset: const Offset(0, 5),
+                        )
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Nama",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 5),
+                        TextField(
+                          controller: namaController,
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.person),
+                            filled: true,
+                            fillColor:
+                                const Color(0xFFAAAAAA).withValues(alpha: 0.3),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(15),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 15),
+
+                        const Text(
+                          "Email",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 5),
+                        TextField(
+                          controller: emailController,
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.email),
+                            filled: true,
+                            fillColor:
+                                const Color(0xFFAAAAAA).withValues(alpha: 0.3),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(15),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 30),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 55,
+                          child: ElevatedButton(
+                            onPressed: isLoading ? null : _verifikasiUser,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF29B6F6),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              elevation: 5,
+                            ),
+                            child: isLoading
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white,
+                                  )
+                                : const Text(
+                                    "Kirim",
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 15),
+
+                        Center(
+                          child: GestureDetector(
+                            onTap: () => Navigator.pop(context),
+                            child: const Text(
+                              "Kembali",
+                              style: TextStyle(
+                                color: Color(0xFF29B6F6),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        )
+                      ],
+                    ),
+                  )
+                ],
+              ),
+            ),
+          )
+        ],
+      ),
+    );
   }
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
-}
+
+  // --- 6. HELPER WIDGET BUBBLE ---
+  // Fungsi ini ada DI DALAM class, tapi DI BAWAH build
+  Widget _buildBubble({
+    double? top,
+    double? left,
+    double? right,
+    double? bottom,
+    required double size,
+    required double opacity,
+  }) {
+    return Positioned(
+      top: top,
+      left: left,
+      right: right,
+      bottom: bottom,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: opacity),
+        ),
+      ),
+    );
+  }
+} 
+// PASTIKAN TIDAK ADA KODE APAPUN DI BAWAH KURUNG KURAWAL INI

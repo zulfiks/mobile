@@ -1,7 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
 import 'login.dart';
+import 'bmi_screen.dart'; // Import halaman BMI untuk navigasi
 
 class ProfileScreen extends StatefulWidget {
   final int userId;
@@ -11,21 +14,32 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  // Controller Akun (BISA DIEDIT DI SINI)
   final TextEditingController namaController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
-  final TextEditingController usiaController = TextEditingController();
-  final TextEditingController genderController = TextEditingController();
-  final TextEditingController tinggiController = TextEditingController();
-  final TextEditingController beratController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
   
-  bool isLoading = false;
+  // Controller Password
+  final TextEditingController oldPasswordController = TextEditingController();
+  final TextEditingController newPasswordController = TextEditingController();
+  final TextEditingController confirmPasswordController = TextEditingController();
+  
+  // Data Statistik (HANYA DISPLAY / READ-ONLY)
+  String displayUsia = "0";
+  String displayTinggi = "0";
+  String displayBerat = "0";
+  String displayGender = "-";
+  String displayBmi = "0.0";
+  String displayStatusBmi = "-";
 
-  // --- PALET WARNA AESTHETIC ---
-  final Color primaryTeal = const Color(0xFF009688);
-  final Color lightTeal = const Color(0xFFE0F2F1);
+  bool isLoading = false;
+  File? _imageFile; 
+  String? _networkImage; 
+
+  final Color primaryTeal = const Color(0xFF4DB6AC);
   final Color bgGrey = const Color(0xFFF5F7FA);
-  final Color textDark = const Color(0xFF263238);
+
+  // GANTI IP INI SESUAI LAPTOP KAMU
+  final String _baseUrl = "http://192.168.1.7:5000";
 
   @override
   void initState() {
@@ -33,71 +47,122 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _fetchUserData();
   }
 
+  // Fungsi Refresh Data (Dipanggil saat kembali dari BMI Screen)
+  Future<void> _refreshData() async {
+    await _fetchUserData();
+  }
+
   Future<void> _fetchUserData() async {
-    // --- PASTIKAN IP SESUAI ---
-    final url = Uri.parse('http://192.168.95.2:5000/api/users/${widget.userId}');
+    final url = Uri.parse('$_baseUrl/api/users/${widget.userId}?t=${DateTime.now().millisecondsSinceEpoch}');
+    
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        setState(() {
-          namaController.text = data['nama'] ?? "";
-          emailController.text = data['email'] ?? "";
-          usiaController.text = (data['umur'] ?? 0).toString();
-          genderController.text = data['gender'] ?? "";
-          tinggiController.text = (data['tinggi'] ?? 0).toString();
-          beratController.text = (data['berat'] ?? 0).toString();
-        });
+        if (mounted) {
+          setState(() {
+            // Data Akun (Editable)
+            namaController.text = data['nama'] ?? "";
+            emailController.text = data['email'] ?? "";
+            
+            // Data Statistik (Read Only)
+            displayUsia = (data['umur'] ?? 0).toString();
+            displayTinggi = (data['tinggi'] ?? 0).toString();
+            displayBerat = (data['berat'] ?? 0).toString();
+            displayBmi = (data['bmi_score'] ?? 0).toString(); // Ambil dari server
+            
+            // Normalisasi Gender
+            String rawGender = data['gender'] ?? "";
+            if (rawGender == "P" || rawGender == "Perempuan") {
+              displayGender = "Perempuan";
+            } else if (rawGender == "L" || rawGender == "Laki-Laki") {
+              displayGender = "Laki-Laki";
+            } else {
+              displayGender = "-";
+            }
+            
+            // Foto
+            if (data['foto'] != null && data['foto'] != "") {
+              _networkImage = data['foto']; 
+            }
+          });
+        }
       }
     } catch (e) {
-      debugPrint("Error: $e");
+      debugPrint("Error Fetch: $e");
     }
   }
 
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) setState(() => _imageFile = File(pickedFile.path));
+  }
+
   Future<void> _updateProfile() async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    // Validasi Password
+    if (newPasswordController.text.isNotEmpty) {
+      if (oldPasswordController.text.isEmpty) {
+        messenger.showSnackBar(const SnackBar(content: Text("Masukkan password lama!"), backgroundColor: Colors.orange));
+        return;
+      }
+      if (newPasswordController.text.length < 8) {
+        messenger.showSnackBar(const SnackBar(content: Text("Password baru min 8 karakter!"), backgroundColor: Colors.orange));
+        return;
+      }
+      if (newPasswordController.text != confirmPasswordController.text) {
+        messenger.showSnackBar(const SnackBar(content: Text("Password baru tidak cocok!"), backgroundColor: Colors.red));
+        return;
+      }
+    }
+
     setState(() => isLoading = true);
-    final url = Uri.parse('http://192.168.95.2:5000/api/users/${widget.userId}');
+    
+    final uri = Uri.parse('$_baseUrl/api/users/${widget.userId}');
+    var request = http.MultipartRequest('PUT', uri);
+
+    // HANYA KIRIM DATA AKUN & PASSWORD (STATISTIK TIDAK DIKIRIM)
+    request.fields['nama'] = namaController.text;
+    request.fields['email'] = emailController.text;
+    
+    if (newPasswordController.text.isNotEmpty) {
+      request.fields['old_password'] = oldPasswordController.text;
+      request.fields['password'] = newPasswordController.text; 
+    }
+    if (_imageFile != null) {
+      request.files.add(await http.MultipartFile.fromPath('foto', _imageFile!.path));
+    }
+
     try {
-      final response = await http.put(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "nama": namaController.text, "email": emailController.text, "umur": usiaController.text,
-          "gender": genderController.text, "tinggi": tinggiController.text, "berat": beratController.text,
-          "password": passwordController.text, 
-        }),
-      );
-      if (response.statusCode == 200 && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(backgroundColor: Color(0xFF43A047), behavior: SnackBarBehavior.floating, content: Text("✨ Profil Berhasil Diupdate!"))
-        );
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        messenger.showSnackBar(const SnackBar(content: Text("Data Akun Berhasil Diupdate!"), backgroundColor: Colors.green));
+        
+        if (mounted) {
+          oldPasswordController.clear();
+          newPasswordController.clear();
+          confirmPasswordController.clear();
+          _fetchUserData(); // Refresh agar foto terbaru muncul
+        }
+      } else {
+        messenger.showSnackBar(const SnackBar(content: Text("Gagal update profile"), backgroundColor: Colors.red));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      messenger.showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
   }
 
   void _logout() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Logout"),
-        content: const Text("Yakin ingin keluar dari aplikasi?"),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Batal")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            onPressed: () {
-               Navigator.pop(ctx);
-               Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const LoginScreen()), (route) => false);
-            }, 
-            child: const Text("Keluar")
-          ),
-        ],
-      ),
+    Navigator.pushAndRemoveUntil(
+      context, 
+      MaterialPageRoute(builder: (context) => const LoginScreen()), 
+      (route) => false
     );
   }
 
@@ -108,132 +173,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // --- 1. HEADER DENGAN CURVE & FOTO ---
-            Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
-              children: [
-                // Background Gradient Curve
-                ClipPath(
-                  clipper: HeaderClipper(),
-                  child: Container(
-                    height: 220,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft, end: Alignment.bottomRight,
-                        colors: [primaryTeal, const Color(0xFF4DB6AC)],
-                      ),
-                    ),
-                  ),
-                ),
-                // Tombol Back
-                Positioned(
-                  top: 50, left: 20,
-                  child: CircleAvatar(
-                    backgroundColor: Colors.white.withValues(alpha: 0.2),
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ),
-                ),
-                // Judul Header
-                const Positioned(
-                  top: 60,
-                  child: Text("Edit Profil", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                ),
-                // Foto Profil
-                Positioned(
-                  bottom: -50,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 4),
-                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 5))],
-                    ),
-                    child: CircleAvatar(
-                      radius: 55,
-                      backgroundColor: Colors.white,
-                      child: Icon(Icons.person, size: 60, color: primaryTeal),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 60), // Space untuk foto profil yang overlap
-
+            _buildHeader(),
+            const SizedBox(height: 60),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 children: [
-                  // --- 2. INFORMASI AKUN (CARD) ---
                   _buildSectionTitle("Informasi Akun"),
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 5))],
-                    ),
-                    child: Column(
-                      children: [
-                        _buildModernField(namaController, "Nama Lengkap", Icons.person_outline),
-                        const SizedBox(height: 15),
-                        _buildModernField(emailController, "Alamat Email", Icons.email_outlined),
-                        const SizedBox(height: 15),
-                        _buildModernField(passwordController, "Password Baru", Icons.lock_outline, isObs: true),
-                      ],
-                    ),
-                  ),
-
+                  _buildAccountCard(),
                   const SizedBox(height: 25),
-
-                  // --- 3. STATISTIK TUBUH (GRID 2x2) ---
-                  _buildSectionTitle("Statistik Tubuh"),
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 15,
-                    mainAxisSpacing: 15,
-                    childAspectRatio: 1.5, // Lebar vs Tinggi
+                  
+                  // Bagian Statistik Read-Only + Link ke BMI
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildStatCard(usiaController, "Usia", "Tahun", Icons.cake_outlined, Colors.orange),
-                      _buildStatCard(genderController, "Gender", "L/P", Icons.wc, Colors.blue),
-                      _buildStatCard(tinggiController, "Tinggi", "cm", Icons.height, Colors.green),
-                      _buildStatCard(beratController, "Berat", "kg", Icons.monitor_weight_outlined, Colors.purple),
+                      _buildSectionTitle("Data Fisik"),
+                      GestureDetector(
+                        onTap: () {
+                          // Navigasi ke BMI Screen untuk Edit Data Fisik
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => BmiScreen(userId: widget.userId)),
+                          ).then((_) => _refreshData()); // Refresh data saat kembali
+                        },
+                        child: Text("Update di BMI >", style: TextStyle(color: primaryTeal, fontWeight: FontWeight.bold)),
+                      )
                     ],
                   ),
-
+                  _buildStatCardReadOnly(), 
+                  
                   const SizedBox(height: 30),
-
-                  // --- 4. TOMBOL ACTION ---
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton(
-                      onPressed: isLoading ? null : _updateProfile,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryTeal,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                        elevation: 5,
-                        shadowColor: primaryTeal.withValues(alpha: 0.4),
-                      ),
-                      child: isLoading 
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text("Simpan Perubahan", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  
+                  _buildSaveButton(),
                   const SizedBox(height: 15),
-                  
-                  TextButton.icon(
-                    onPressed: _logout,
-                    icon: const Icon(Icons.logout, color: Colors.redAccent),
-                    label: const Text("Logout Akun", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                  ),
-
+                  _buildLogoutButton(),
                   const SizedBox(height: 40),
                 ],
               ),
@@ -244,92 +216,170 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // --- WIDGET HELPER ---
-  
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10, left: 5),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[700])),
-      ),
-    );
-  }
-
-  Widget _buildModernField(TextEditingController c, String hint, IconData icon, {bool isObs = false}) {
-    return TextField(
-      controller: c,
-      obscureText: isObs,
-      style: const TextStyle(fontWeight: FontWeight.w600),
-      decoration: InputDecoration(
-        labelText: hint,
-        labelStyle: TextStyle(color: Colors.grey[500]),
-        prefixIcon: Icon(icon, color: primaryTeal),
-        filled: true,
-        fillColor: const Color(0xFFFAFAFA),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[200]!)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryTeal, width: 2)),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16),
-      ),
-    );
-  }
-
-  Widget _buildStatCard(TextEditingController c, String label, String suffix, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 5))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 18, color: color),
-              const SizedBox(width: 5),
-              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.bold)),
-            ],
+  // --- WIDGET UI ---
+  Widget _buildHeader() {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        ClipPath(
+          clipper: HeaderClipper(),
+          child: Container(
+            height: 220,
+            decoration: BoxDecoration(gradient: LinearGradient(colors: [primaryTeal, const Color(0xFF80CBC4)])),
           ),
-          const Spacer(),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: c,
-                  keyboardType: TextInputType.number,
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textDark),
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    border: InputBorder.none,
+        ),
+        Positioned(
+          top: 50, left: 20,
+          child: CircleAvatar(
+            backgroundColor: Colors.white.withValues(alpha: 0.2),
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+        ),
+        const Positioned(
+          top: 60,
+          child: Text("Edit Profil", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+        ),
+        Positioned(
+          bottom: -50,
+          child: GestureDetector(
+            onTap: _pickImage, 
+            child: Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 4),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10)],
+                  ),
+                  child: CircleAvatar(
+                    radius: 55, backgroundColor: Colors.white,
+                    backgroundImage: _getImageProvider(),
+                    child: _getImageProvider() == null ? Icon(Icons.person, size: 60, color: primaryTeal) : null,
                   ),
                 ),
-              ),
-              Text(suffix, style: TextStyle(fontSize: 12, color: Colors.grey[400], fontWeight: FontWeight.w600)),
-            ],
-          )
+                Positioned(
+                  bottom: 0, right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+                    child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
+                  ),
+                )
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  ImageProvider? _getImageProvider() {
+    if (_imageFile != null) return FileImage(_imageFile!);
+    if (_networkImage != null && _networkImage!.isNotEmpty) {
+      if (!_networkImage!.startsWith('http')) {
+        return NetworkImage('$_baseUrl/static/uploads/$_networkImage');
+      }
+      return NetworkImage(_networkImage!);
+    }
+    return null;
+  }
+
+  Widget _buildAccountCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.1), blurRadius: 10)]),
+      child: Column(
+        children: [
+          _buildField(namaController, "Username", Icons.person_outline, limit: 20),
+          const SizedBox(height: 15),
+          _buildField(emailController, "Alamat Email", Icons.email_outlined),
+          const Divider(height: 40),
+          const Text("Ganti Password", style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          _buildField(oldPasswordController, "Password Lama", Icons.lock_open, isObs: true),
+          const SizedBox(height: 10),
+          _buildField(newPasswordController, "Password Baru", Icons.lock_outline, isObs: true),
+          const SizedBox(height: 10),
+          _buildField(confirmPasswordController, "Konfirmasi Password Baru", Icons.check_circle_outline, isObs: true),
         ],
       ),
     );
   }
+
+  // WIDGET BARU: TAMPILAN STATISTIK (READ ONLY)
+  Widget _buildStatCardReadOnly() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.1), blurRadius: 10)]),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildInfoItem("Usia", "$displayUsia th"),
+              _buildInfoItem("Gender", displayGender),
+            ],
+          ),
+          const Divider(height: 30),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildInfoItem("Tinggi", "$displayTinggi cm"),
+              _buildInfoItem("Berat", "$displayBerat kg"),
+              _buildInfoItem("BMI", displayBmi, isBold: true),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(String label, String value, {bool isBold = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 4),
+        Text(value, style: TextStyle(fontSize: 16, fontWeight: isBold ? FontWeight.bold : FontWeight.w500, color: isBold ? primaryTeal : Colors.black87)),
+      ],
+    );
+  }
+
+  Widget _buildField(TextEditingController c, String hint, IconData icon, {bool isObs = false, int? limit}) {
+    return TextField(
+      controller: c, 
+      obscureText: isObs, 
+      maxLength: limit,
+      decoration: InputDecoration(
+        labelText: hint, 
+        prefixIcon: Icon(icon, color: primaryTeal), 
+        filled: true, 
+        fillColor: const Color(0xFFFAFAFA), 
+        counterText: "", 
+        contentPadding: const EdgeInsets.symmetric(vertical: 15, horizontal: 15),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)
+      ),
+    );
+  }
+
+  Widget _buildSaveButton() {
+    return SizedBox(width: double.infinity, height: 55, child: ElevatedButton(onPressed: isLoading ? null : _updateProfile, style: ElevatedButton.styleFrom(backgroundColor: primaryTeal, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))), child: isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("Simpan Data Akun", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))));
+  }
+
+  Widget _buildLogoutButton() => TextButton.icon(onPressed: _logout, icon: const Icon(Icons.logout, color: Colors.red), label: const Text("Logout", style: TextStyle(color: Colors.red)));
+
+  Widget _buildSectionTitle(String title) => Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold))));
 }
 
-// --- CLIPPER UNTUK HEADER MELENGKUNG ---
 class HeaderClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
-    Path path = Path();
-    path.lineTo(0, size.height - 50);
-    path.quadraticBezierTo(size.width / 2, size.height, size.width, size.height - 50);
-    path.lineTo(size.width, 0);
-    path.close();
-    return path;
+    Path path = Path(); path.lineTo(0, size.height - 50); path.quadraticBezierTo(size.width / 2, size.height, size.width, size.height - 50); path.lineTo(size.width, 0); path.close(); return path;
   }
-
   @override
   bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }
